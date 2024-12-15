@@ -22,6 +22,7 @@ if sys.platform == "win32":
 else:
     BIN_FOLDER = "bin"
 
+PROG_NAME = sys.argv[0]
 
 GLOBAL_PYTHON_EXECUTABLE = sys.executable #path to the python executable
 GLOBAL_PIP_EXECUTABLE = f"{GLOBAL_PYTHON_EXECUTABLE} -m pip" #path to the pip executable
@@ -47,7 +48,7 @@ class PackageManager:
             config.set("build-system", {"requires": ["setuptools>=61.0"], "build-backend": "setuptools.build_meta"})
             config.set("project", {
                 "name": name,
-                "dynamic": ["version"],
+                "version": "0.1.0",
                 "authors" : list(map(str.strip, authors.split(","))),
                 "description": description,
                 "readme": "README.md",
@@ -196,8 +197,8 @@ class ConfigArgParser:
     
 
 def main():
-    parser = argparse.ArgumentParser("PackageManager", description="A package manager similar to npm, but for Python")
-    parser.add_argument("--version", action="version", version="%(prog)s " + VERSION)
+    parser = argparse.ArgumentParser(PROG_NAME, description="A package manager similar to npm, but for Python")
+    parser.add_argument("--version", action="version", version=VERSION)
     parser.add_argument("-c", "--config", help="Path to the pyproject.toml file", default=DEFAULT_CONFIG_PATH)
     commandParser = parser.add_subparsers(dest="command")
     
@@ -217,7 +218,6 @@ def main():
         pm.uninstall(args.name, args._global)
     elif args.command == "list":
         pm.list(args._global, args.deprecated)
-
-
-if __name__ == "__main__":
-    main()
+    else:
+        parser.print_help()
+        sys.exit(1)
