@@ -4,12 +4,8 @@ import sys
 import virtualenv
 import subprocess as sp
 import os
-import re
 
-try:
-    from .config_file import PyProject
-except ImportError:
-    from config_file import PyProject
+from .config_file import PyProject
 
 try:
     VERSION = metadata.version("PackageManager")
@@ -34,9 +30,8 @@ class PackageManager:
     def __init__(self, config_path : str):
         self.configPath = config_path
         self.envPath = ".ppm.env"
-    
-    def init(self, name : str, authors : str, description : str):        
-        def createPyProject():
+        
+    def createPyProject(self, name : str, authors : str, description : str):
             if not name:
                 name = input("Enter the name of the package: ")
             if not authors:
@@ -56,23 +51,26 @@ class PackageManager:
                 })
             
             config.save()
-        
-        def createVenv():
-            virtualenv.cli_run([self.envPath])
-            activate_this = f"{self.envPath}/{BIN_FOLDER}/activate_this.py"
-            with open(activate_this) as f:
-                exec(f.read(), {"__file__": activate_this})
+    
+    def createVenv(self):
+        virtualenv.cli_run([self.envPath])
+        activate_this = f"{self.envPath}/{BIN_FOLDER}/activate_this.py"
+        with open(activate_this) as f:
+            exec(f.read(), {"__file__": activate_this})
         
     
+    def init(self, name : str, authors : str, description : str):        
         if os.path.exists(self.configPath):
             print("A config file already exists. Do you want to overwrite it? (y/n):", end=" ")
             if input().lower() == "y":
-                createPyProject()
-        createVenv()
+                self.createPyProject(name, authors, description)
+        else:
+            self.createPyProject(name, authors, description)
+        self.createVenv()
         print("Initialization complete")
             
 
-    def install(self, name : str, _global : bool):
+    def install(self, name : list[str], _global : bool):
         config = PyProject(self.configPath)
         
         if not os.path.exists(self.envPath):
@@ -127,10 +125,14 @@ class PackageManager:
                 else:
                     print(f"Dependency {dep} is already installed")
         else:
-            installPackage(name)
+            for package in name:
+                if package not in installedPackages:
+                    installPackage(package)
+                else:
+                    print(f"Package {package} is already installed")
             
 
-    def uninstall(self, name : str, _global : bool):
+    def uninstall(self, name : list[str], _global : bool):
         if not os.path.exists(self.envPath):
             print("No environment found. Please run 'init' first")
             return
@@ -138,9 +140,9 @@ class PackageManager:
         config = PyProject(self.configPath)
         
         if _global:
-            return os.system(f"{GLOBAL_PIP_EXECUTABLE} uninstall -y {name}")
+            return os.system(f"{GLOBAL_PIP_EXECUTABLE} uninstall -y {' '.join(name)}")
         else:
-            res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "uninstall", "-y", name], capture_output=True)
+            res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "uninstall", "-y", *name], capture_output=True)
             
             stdout = res.stdout.decode()
             
@@ -154,9 +156,9 @@ class PackageManager:
                     package = line.split(" ")[1]
                     if package.endswith(":"):
                         package = package[:-1]
-                    name, version = package.split("-")
-                    versionString = f"{name}=={version}"
-                    print(f"Uninstalled {name}=={version}")
+                    pName, pVersion = package.split("-")
+                    versionString = f"{pName}=={pVersion}"
+                    print(f"Uninstalled {pName}=={pVersion}")
                     config["project"]["dependencies"].remove(versionString)
             config.save()
 
@@ -173,22 +175,26 @@ class PackageManager:
     
     
 class ConfigArgParser:
+    @staticmethod
     def init(parser : argparse._SubParsersAction):
         initParser = parser.add_parser("init", help="Initialize a new package")
         initParser.add_argument("name", help="Name of the package", default="", nargs="?")
         initParser.add_argument("authors", help="Authors of the package", default="", nargs="?")
         initParser.add_argument("description", help="Description of the package", default="", nargs="?")
     
+    @staticmethod
     def install(parser : argparse._SubParsersAction):
         installParser = parser.add_parser("install", help="Install a package")
-        installParser.add_argument("name", help="Name of the package", default="", nargs="?")
+        installParser.add_argument("name", help="Name of the package", nargs="*", default="")
         installParser.add_argument("--global", action="store_true", help="Install the package globally", default=False, dest="_global")
 
+    @staticmethod
     def uninstall(parser : argparse._SubParsersAction):
         uninstallParser = parser.add_parser("uninstall", help="Uninstall a package")
-        uninstallParser.add_argument("name", help="Name of the package", default="")
+        uninstallParser.add_argument("name", help="Name of the package", default="", nargs="+")
         uninstallParser.add_argument("--global", action="store_true", help="Uninstall the package globally", default=False, dest="_global")
 
+    @staticmethod
     def list(parser : argparse._SubParsersAction):
         listParser = parser.add_parser("list", help="List all installed packages")
         listParser.add_argument("--global", action="store_true", help="List all globally installed packages", default=False, dest="_global")
