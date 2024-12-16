@@ -87,11 +87,14 @@ class PackageManager:
             
             return res.stdout.decode().split("\n")
         
-        def installPackage(package : str):
+        def installPackage(package : str, version : str = None):
+            if version:
+                package = f"{package}=={version}"
             if _global:
                 res = sp.run([GLOBAL_PIP_EXECUTABLE, "install", package], capture_output=True)
                 return res.returncode
             else:
+                print(f"Installing {package}")
                 res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "install", package], capture_output=True)
                 if res.returncode != 0:
                     return res.returncode
