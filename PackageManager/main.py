@@ -4,6 +4,7 @@ import sys
 import virtualenv
 import subprocess as sp
 import os
+from typing import List
 
 from .config_file import PyProject
 
@@ -59,7 +60,7 @@ class PackageManager:
             exec(f.read(), {"__file__": activate_this})
         
     
-    def init(self, name : str, authors : str, description : str):        
+    def init(self, name : str, authors : str, description : str) -> int:      
         if os.path.exists(self.configPath):
             print("A config file already exists. Do you want to overwrite it? (y/n):", end=" ")
             if input().lower() == "y":
@@ -68,9 +69,9 @@ class PackageManager:
             self.createPyProject(name, authors, description)
         self.createVenv()
         print("Initialization complete")
+        return 0
             
-
-    def install(self, name : list[str], _global : bool):
+    def install(self, name : List[str], _global : bool) -> int:
         config = PyProject(self.configPath)
         
         if not os.path.exists(self.envPath):
@@ -132,12 +133,12 @@ class PackageManager:
                     installPackage(package)
                 else:
                     print(f"Package {package} is already installed")
+        return 0
             
-
-    def uninstall(self, name : list[str], _global : bool):
+    def uninstall(self, name : List[str], _global : bool) -> int:
         if not os.path.exists(self.envPath):
-            print("No environment found. Please run 'init' first")
-            return
+            print("No environment found")
+            return 1
         
         config = PyProject(self.configPath)
         
@@ -152,7 +153,7 @@ class PackageManager:
             
             if res.returncode != 0:
                 print(res.stderr.decode())
-                raise Exception(f"Failed to uninstall package {name} (exit code: {res.returncode})")
+                return res.returncode
 
             for line in stdout.split("\n"):
                 if line.startswith("Uninstalling"):
@@ -164,9 +165,9 @@ class PackageManager:
                     print(f"Uninstalled {pName}=={pVersion}")
                     config["project"]["dependencies"].remove(versionString)
             config.save()
+            return 0
 
-
-    def list(self, _global : bool, deprecated : bool):
+    def list(self, _global : bool, deprecated : bool) -> int:
         cmd = "list"
         if deprecated:
             cmd += " --outdated"
@@ -175,13 +176,24 @@ class PackageManager:
             res = sp.run(f"{GLOBAL_PIP_EXECUTABLE} {cmd}", shell=True)
             if res.returncode != 0:
                 print(res.stderr.decode())
-                raise Exception(f"Failed to list packages (exit code: {res.returncode})")
+                return res.returncode
         else:
             res = sp.run(f"{self.envPath}/{BIN_FOLDER}/pip {cmd}", shell=True)
             if res.returncode != 0:
                 print(res.stderr.decode())
-                raise Exception(f"Failed to list packages (exit code: {res.returncode})")
+                return res.returncode
+        return 0
     
+    def run(self, script : str, args : List[str]) -> int:
+        if not os.path.exists(script):
+            print(f"Script {script} not found")
+            return 1
+        
+        if not os.path.exists(self.envPath):
+            self.createVenv()
+        
+        res = sp.run([f"{self.envPath}/{BIN_FOLDER}/python", script, *args])
+        return res.returncode
     
 class ConfigArgParser:
     @staticmethod
@@ -208,7 +220,12 @@ class ConfigArgParser:
         listParser = parser.add_parser("list", help="List all installed packages")
         listParser.add_argument("--global", action="store_true", help="List all globally installed packages", default=False, dest="_global")
         listParser.add_argument("--deprecated", "--outdated", action="store_true", help="List all deprecated packages", default=False)
-        
+    
+    @staticmethod
+    def run(parser : argparse._SubParsersAction):
+        runParser = parser.add_parser("run", help="Run a script")
+        runParser.add_argument("script", help="Path to the script")
+        runParser.add_argument("args", help="Arguments to pass to the script", nargs=argparse.REMAINDER)
     
 
 def main():
@@ -221,18 +238,22 @@ def main():
     ConfigArgParser.install(commandParser)
     ConfigArgParser.uninstall(commandParser)
     ConfigArgParser.list(commandParser)
+    ConfigArgParser.run(commandParser)
     
     args = parser.parse_args()
     
     pm = PackageManager(args.config)
     if args.command == "init":
-        pm.init(args.name, args.authors, args.description)
+        return pm.init(args.name, args.authors, args.description)
     elif args.command == "install":
-        pm.install(args.name, args._global)
+        return pm.install(args.name, args._global)
     elif args.command == "uninstall":
-        pm.uninstall(args.name, args._global)
+        return pm.uninstall(args.name, args._global)
     elif args.command == "list":
-        pm.list(args._global, args.deprecated)
+        return pm.list(args._global, args.deprecated)
+    elif args.command == "run":
+        return pm.run(args.script, args.args)
     else:
+        print("No command specified")
         parser.print_help()
         sys.exit(1)
