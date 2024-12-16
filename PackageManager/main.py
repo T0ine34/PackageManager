@@ -195,6 +195,13 @@ class PackageManager:
         res = sp.run([f"{self.envPath}/{BIN_FOLDER}/python", script, *args])
         return res.returncode
     
+    def cli(self, _global : bool) -> int:
+        if _global:
+            res = sp.run(GLOBAL_PYTHON_EXECUTABLE)
+        else:
+            res = sp.run(f"{self.envPath}/{BIN_FOLDER}/python")
+        return res.returncode
+    
 class ConfigArgParser:
     @staticmethod
     def init(parser : argparse._SubParsersAction):
@@ -225,8 +232,13 @@ class ConfigArgParser:
     def run(parser : argparse._SubParsersAction):
         runParser = parser.add_parser("run", help="Run a script")
         runParser.add_argument("script", help="Path to the script")
-        runParser.add_argument("args", help="Arguments to pass to the script", nargs=argparse.REMAINDER)
+        runParser.add_argument("args", help="Arguments to pass to the script", nargs="*", default=[])
     
+    @staticmethod
+    def cli(parser : argparse._SubParsersAction):
+        cliParser = parser.add_parser("cli", help="Open a Python shell in the virtual environment")
+        cliParser.add_argument("--global", action="store_true", help="Open a Python shell in the global environment", default=False, dest="_global")
+
 
 def main():
     parser = argparse.ArgumentParser(PROG_NAME, description="A package manager similar to npm, but for Python")
@@ -234,11 +246,9 @@ def main():
     parser.add_argument("-c", "--config", help="Path to the pyproject.toml file", default=DEFAULT_CONFIG_PATH)
     commandParser = parser.add_subparsers(dest="command")
     
-    ConfigArgParser.init(commandParser)
-    ConfigArgParser.install(commandParser)
-    ConfigArgParser.uninstall(commandParser)
-    ConfigArgParser.list(commandParser)
-    ConfigArgParser.run(commandParser)
+    for func in ConfigArgParser.__dict__.values():
+        if callable(func):
+            func(commandParser)
     
     args = parser.parse_args()
     
@@ -253,6 +263,8 @@ def main():
         return pm.list(args._global, args.deprecated)
     elif args.command == "run":
         return pm.run(args.script, args.args)
+    elif args.command == "cli":
+        return pm.cli(args._global)
     else:
         print("No command specified")
         parser.print_help()
