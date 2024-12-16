@@ -74,8 +74,7 @@ class PackageManager:
         config = PyProject(self.configPath)
         
         if not os.path.exists(self.envPath):
-            print("No environment found. Please run 'init' first")
-            return
+            self.createVenv()
         
         def getInstalledPackages():
             if _global:
@@ -90,9 +89,9 @@ class PackageManager:
         
         def installPackage(package : str):
             if _global:
-                return os.system(f"{GLOBAL_PIP_EXECUTABLE} install {package}")
+                res = sp.run([GLOBAL_PIP_EXECUTABLE, "install", package], capture_output=True)
+                return res.returncode
             else:
-                # res = os.system(f"{self.envPath}/{BIN_FOLDER}/pip install {package}")
                 res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "install", package], capture_output=True)
                 if res.returncode != 0:
                     return res.returncode
@@ -105,7 +104,7 @@ class PackageManager:
                     if line.startswith("Successfully installed"):
                         packages = line.split(" ")[2:]
                         for package in packages:
-                            name, version = package.split("-")
+                            name, version = package.rsplit("-", 1)
                             versionString = f"{name}=={version}"
                             if versionString not in config["project"]["dependencies"]:
                                 config["project"]["dependencies"].append(versionString)
@@ -140,7 +139,8 @@ class PackageManager:
         config = PyProject(self.configPath)
         
         if _global:
-            return os.system(f"{GLOBAL_PIP_EXECUTABLE} uninstall -y {' '.join(name)}")
+            res = sp.run([GLOBAL_PIP_EXECUTABLE, "uninstall", "-y", *name], capture_output=True)
+            return res.returncode
         else:
             res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "uninstall", "-y", *name], capture_output=True)
             
@@ -169,9 +169,15 @@ class PackageManager:
             cmd += " --outdated"
         
         if _global:
-            os.system(f"{GLOBAL_PIP_EXECUTABLE} {cmd}")
+            res = sp.run(f"{GLOBAL_PIP_EXECUTABLE} {cmd}", shell=True)
+            if res.returncode != 0:
+                print(res.stderr.decode())
+                raise Exception(f"Failed to list packages (exit code: {res.returncode})")
         else:
-            os.system(f"{self.envPath}/{BIN_FOLDER}/pip {cmd}")
+            res = sp.run(f"{self.envPath}/{BIN_FOLDER}/pip {cmd}", shell=True)
+            if res.returncode != 0:
+                print(res.stderr.decode())
+                raise Exception(f"Failed to list packages (exit code: {res.returncode})")
     
     
 class ConfigArgParser:
