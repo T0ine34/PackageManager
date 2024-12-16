@@ -20,7 +20,7 @@ jobs:
       run: python -m pip install --upgrade pip
 
     - name: Install dependencies
-      run: python -m pip install -r requirements.txt
+      run: pip install build
 
 
     - name: Build
