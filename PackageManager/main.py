@@ -5,6 +5,7 @@ import virtualenv
 import subprocess as sp
 import os
 from typing import List
+import re
 
 from .config_file import PyProject
 
@@ -55,9 +56,6 @@ class PackageManager:
     
     def createVenv(self):
         virtualenv.cli_run([self.envPath])
-        activate_this = f"{self.envPath}/{BIN_FOLDER}/activate_this.py"
-        with open(activate_this) as f:
-            exec(f.read(), {"__file__": activate_this})
         
     
     def init(self, name : str, authors : str, description : str) -> int:      
@@ -71,7 +69,7 @@ class PackageManager:
         print("Initialization complete")
         return 0
             
-    def install(self, name : List[str], _global : bool) -> int:
+    def install(self, names : List[str], _global : bool) -> int:
         config = PyProject(self.configPath)
         
         if not os.path.exists(self.envPath):
@@ -88,21 +86,28 @@ class PackageManager:
             
             return res.stdout.decode().split("\n")
         
-        def installPackage(package : str, version : str = None):
+        def installPackage(package : str, version : str = None, installDeps : bool = True):
             if version:
                 package = f"{package}=={version}"
             if _global:
-                res = sp.run([GLOBAL_PIP_EXECUTABLE, "install", package], capture_output=True)
-                return res.returncode
-            else:
-                print(f"Installing {package}")
-                res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "install", package], capture_output=True)
+                cmd = [GLOBAL_PIP_EXECUTABLE, "install", package]
+                if installDeps:
+                    cmd.append("--no-deps")
+                res = sp.run(cmd, capture_output=True)
+                print(res.stderr.decode())
                 if res.returncode != 0:
+                    print(res.stderr.decode())
+                    return res.returncode
+            else:
+                cmd = [f"{self.envPath}/{BIN_FOLDER}/pip", "install", package]
+                if installDeps:
+                    cmd.append("--no-deps")
+                res = sp.run(cmd, capture_output=True)
+                if res.returncode != 0:
+                    print(res.stderr.decode())
                     return res.returncode
                 
                 stdout = res.stdout.decode()
-                if stdout.startswith("Requirement already satisfied"):
-                    return 0
                 
                 for line in stdout.split("\n"):
                     if line.startswith("Successfully installed"):
@@ -116,26 +121,49 @@ class PackageManager:
                 config.save()
                 return 0
         
+        def getMissingDependencies():
+            cmd = [f"{self.envPath}/{BIN_FOLDER}/pip", "check"]
+            res = sp.run(cmd, capture_output=True)
+            if res.returncode != 0:
+                raise Exception("Failed to check for missing dependencies")
+            missingDeps = re.findall(r"requires (.+?),", res.stdout.decode())
+            return missingDeps
+            
+            
         installedPackages = getInstalledPackages()
-        if not name:
+        if not names:
             # install all dependencies in the config file
             deps = config["project"]["dependencies"]
             
             print(f"Installing {len(deps)} dependencies")
             for dep in deps:
                 if dep not in installedPackages:
-                    installPackage(dep)
+                    installPackage(dep, installDeps=False)
                 else:
                     print(f"Dependency {dep} is already installed")
         else:
-            for package in name:
+            for package in names:
                 if package not in installedPackages:
-                    installPackage(package)
+                    installPackage(package, installDeps=False)
                 else:
                     print(f"Package {package} is already installed")
+                    
+        missingDeps = getMissingDependencies()
+        for dep in missingDeps:
+            self.install([dep], _global)
+                
         return 0
             
-    def uninstall(self, name : List[str], _global : bool) -> int:
+    def uninstall(self, names : List[str], _global : bool) -> int:
+        """Uninstall a package
+
+        Args:
+            names (List[str]): List of package names; can contain the version number (e.g. "requests==2.26.0")
+            _global (bool): Whether to uninstall the package globally
+
+        Returns:
+            int: 0 if successful, 1 otherwise
+        """
         if not os.path.exists(self.envPath):
             print("No environment found")
             return 1
@@ -143,30 +171,43 @@ class PackageManager:
         config = PyProject(self.configPath)
         
         if _global:
-            res = sp.run([GLOBAL_PIP_EXECUTABLE, "uninstall", "-y", *name], capture_output=True)
+            res = sp.run([GLOBAL_PIP_EXECUTABLE, "uninstall", "-y", *names], capture_output=True)
             return res.returncode
         else:
-            res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "uninstall", "-y", *name], capture_output=True)
-            
-            stdout = res.stdout.decode()
-            
-            
-            if res.returncode != 0:
-                print(res.stderr.decode())
-                return res.returncode
-
-            for line in stdout.split("\n"):
-                if line.startswith("Uninstalling"):
-                    package = line.split(" ")[1]
-                    if package.endswith(":"):
-                        package = package[:-1]
-                    pName, pVersion = package.split("-")
-                    versionString = f"{pName}=={pVersion}"
-                    print(f"Uninstalled {pName}=={pVersion}")
-                    config["project"]["dependencies"].remove(versionString)
+            # find the package in the config file
+            deps = config["project"]["dependencies"] #are of form "requests==2.26.0"
+            #name in names can be of form "requests" or "requests==2.26.0"
+            for name in names:
+                version = ""
+                if "==" in name:
+                    if name in deps:
+                        deps.remove(name)
+                        version = name.split("==")[1]
+                    else:
+                        print(f"Package {name} not found in dependencies")
+                        continue
+                else:
+                    for dep in deps:
+                        if dep.split("==")[0] == name:
+                            version = dep.split("==")[1]
+                            deps.remove(dep)
+                            break
+                    else:
+                        print(f"Package {name} not found in dependencies")
+                        continue
+                try:
+                    res = sp.run([f"{self.envPath}/{BIN_FOLDER}/pip", "uninstall", "-y", f"{name}=={version}"], capture_output=True)
+                    if res.returncode != 0:
+                        print(res.stderr.decode())
+                        return res.returncode
+                except Exception as e:
+                    print(e)
+                    print(os.path.abspath(f"{self.envPath}/{BIN_FOLDER}/pip"))
+                
+                print(f"Uninstalled {name}=={version}")
             config.save()
             return 0
-
+            
     def list(self, _global : bool, deprecated : bool) -> int:
         cmd = "list"
         if deprecated:
