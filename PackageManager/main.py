@@ -24,7 +24,7 @@ PROG_NAME = sys.argv[0]
 GLOBAL_PYTHON_EXECUTABLE = sys.executable #path to the python executable
 GLOBAL_PIP_EXECUTABLE = f"{GLOBAL_PYTHON_EXECUTABLE} -m pip" #path to the pip executable
 
-DEFAULT_CONFIG_PATH = "test.config.toml" #a file with the same structure as a pyproject.toml file
+DEFAULT_CONFIG_PATH = "pyproject.toml" #a file with the same structure as a pyproject.toml file
 
 
 class PackageManager:
